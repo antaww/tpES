@@ -1,24 +1,87 @@
 # Elasticsearch & Kibana
 
-## Partie 1: Installation et Configuration du Cluster Elasticsearch
+## Partie 1 : Installation et Configuration du Cluster Elasticsearch
 
 Pour cette partie, nous allons installer et configurer un cluster Elasticsearch avec docker.
 Afin de réaliser cette tâche, nous avons utilisé le docker-compose suivant :
 
 ```yaml
 version: '3.8'
-
 services:
-  elasticsearch:
-    image: elasticsearch:7.17.9
-    ports:
-      - '9200:9200'
+  es-node1:
+    image: docker.elastic.co/elasticsearch/elasticsearch:7.14.0
+    container_name: es-node1
     environment:
-      - discovery.type=single-node
-  kibana:
-    image: kibana:7.17.9
+      - node.name=es-node1
+      - cluster.name=es-docker-cluster
+      - discovery.seed_hosts=es-node2,es-node3
+      - cluster.initial_master_nodes=es-node1,es-node2,es-node3
+      - bootstrap.memory_lock=true
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    volumes:
+      - esdata1:/usr/share/elasticsearch/data
     ports:
-      - '5601:5601'
+      - 9200:9200
+    networks:
+      - esnet
+  es-node2:
+    image: docker.elastic.co/elasticsearch/elasticsearch:7.14.0
+    container_name: es-node2
+    environment:
+      - node.name=es-node2
+      - cluster.name=es-docker-cluster
+      - discovery.seed_hosts=es-node1,es-node3
+      - cluster.initial_master_nodes=es-node1,es-node2,es-node3
+      - bootstrap.memory_lock=true
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    volumes:
+      - esdata2:/usr/share/elasticsearch/data
+    networks:
+      - esnet
+  es-node3:
+    image: docker.elastic.co/elasticsearch/elasticsearch:7.14.0
+    container_name: es-node3
+    environment:
+      - node.name=es-node3
+      - cluster.name=es-docker-cluster
+      - discovery.seed_hosts=es-node1,es-node2
+      - cluster.initial_master_nodes=es-node1,es-node2,es-node3
+      - bootstrap.memory_lock=true
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    volumes:
+      - esdata3:/usr/share/elasticsearch/data
+    networks:
+      - esnet
+  kibana:
+    image: docker.elastic.co/kibana/kibana:7.14.0
+    container_name: kibana
+    ports:
+      - 5601:5601
+    environment:
+      ELASTICSEARCH_HOSTS: "http://es-node1:9200"
+    networks:
+      - esnet
+volumes:
+  esdata1:
+    driver: local
+  esdata2:
+    driver: local
+  esdata3:
+    driver: local
+networks:
+  esnet:
 ```
 
 Lançons le cluster Elasticsearch avec la commande suivante :
@@ -26,6 +89,8 @@ Lançons le cluster Elasticsearch avec la commande suivante :
 ```bash
 docker-compose up
 ```
+
+## Partie 2 : Premiers Pas avec le Cluster Elasticsearch
 
 1. Créer un index nommé test01
 
@@ -488,3 +553,98 @@ curl -XPOST "http://localhost:9200/test03/_bulk" -H 'Content-Type: application/j
 { "titre": "Doc 4", "description": "Description du document 4" }
 '
 ```
+
+## Partie 3 : Intégration de Kibana
+La configuration du docker-compose permet de lancer un cluster Elasticsearch et un serveur Kibana.
+
+1. Pour peupler le cluster, rendons-nous sur Kibana à l'adresse `http://localhost:5601`.
+On y trouvera une section `Dashboard` qui nous permettra d'ajouter les données sur les vols.
+2. Lister les vols dont le prix moyen est entre 300€ et 450€ :
+
+```json
+GET kibana_sample_data_flights/_search
+{
+  "query": {
+    "range": {
+      "AvgTicketPrice": {
+        "gte": 300,
+        "lte": 450
+      }
+    }
+  }
+}
+```
+
+<img src="imgs/flights_mean.png">
+
+3. Lister les vols annulés :
+
+```json
+GET kibana_sample_data_flights/_search
+{
+  "query": {
+    "term": {
+      "Cancelled": true
+    }
+  }
+}
+```
+
+<img src="imgs/flights_cancelled.png">
+
+4. Lister les vols où il pleut à l'arrivée ou au départ :
+
+```json
+GET kibana_sample_data_flights/_search
+{
+  "query": {
+    "bool": {
+      "should": [
+        { "term": { "OriginWeather": "Rain" } },
+        { "term": { "DestWeather": "Rain" } }
+      ]
+    }
+  },
+  "sort": [
+    { "DestWeather": { "order": "desc" } }
+  ]
+}
+```
+
+<img src="imgs/flights_rain.png">
+
+5. Lister les vols partant d'Allemagne et à destination de France :
+
+```json
+GET kibana_sample_data_flights/_search
+{
+  "query": {
+    "bool": {
+      "must": [
+        { "term": { "OriginCountry": "DE" } },
+        { "term": { "DestCountry": "FR" } }
+      ]
+    }
+  }
+}
+```
+
+<img src="imgs/flights_de_fr.png">
+
+6. Lister les vols ayant eu lieu entre le 1er avril 2024 et le 20 mai 2024 :
+
+```json
+GET kibana_sample_data_flights/_search
+{
+  "query": {
+    "range": {
+      "timestamp": {
+        "gte": "2024-04-01",
+        "lte": "2024-05-20"
+      }
+    }
+  }
+}
+```
+
+<img src="imgs/flights_april_may.png">
